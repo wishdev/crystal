@@ -49,31 +49,8 @@ module HTTP
           body.expects_continue = true
         end
 
-        if decompress && body
-          encoding = headers["Content-Encoding"]?
-          {% if flag?(:without_zlib) %}
-            case encoding
-            when "gzip", "deflate"
-              raise "Can't decompress because `-D without_zlib` was passed at compile time"
-            else
-              # not a format we support
-            end
-          {% else %}
-            case encoding
-            when "gzip"
-              body = Compress::Gzip::Reader.new(body, sync_close: true)
-              headers.delete("Content-Encoding")
-              headers.delete("Content-Length")
-            when "deflate"
-              body = Compress::Deflate::Reader.new(body, sync_close: true)
-              headers.delete("Content-Encoding")
-              headers.delete("Content-Length")
-            else
-              # not a format we support
-            end
-          {% end %}
-        end
-
+        body = decompress_body(body, headers) if decompress && body
+        
         check_content_type_charset(body, headers)
 
         yield headers, body
@@ -86,7 +63,34 @@ module HTTP
       end
     end
   end
+  
+  private def self.decompress_body(body : IO, headers)
+    encoding = headers["Content-Encoding"]?
+    {% if flag?(:without_zlib) %}
+      case encoding
+      when "gzip", "deflate"
+        raise "Can't decompress because `-D without_zlib` was passed at compile time"
+      else
+        # not a format we support
+      end
+    {% else %}
+      case encoding
+      when "gzip"
+        body = Compress::Gzip::Reader.new(body, sync_close: true)
+        headers.delete("Content-Encoding")
+        headers.delete("Content-Length")
+      when "deflate"
+        body = Compress::Deflate::Reader.new(body, sync_close: true)
+        headers.delete("Content-Encoding")
+        headers.delete("Content-Length")
+      else
+        # not a format we support
+      end
 
+      return body
+    {% end %}
+  end
+  
   private def self.read_header_line(io, max_size) : HeaderLine | EndOfRequest | Nil
     # Optimization: check if we have a peek buffer
     if peek = io.peek
